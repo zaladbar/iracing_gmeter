@@ -6,6 +6,7 @@
 import math
 import sys
 import time
+import os
 from collections import deque
 
 # --- Telemetry ---
@@ -79,7 +80,7 @@ class IRacingReader(QtCore.QObject):
             self.telemetry.emit(float('nan'), float('nan'), 0.0, 0.0)
 
 class GMeterOverlay(QtWidgets.QWidget):
-    def __init__(self):
+    def __init__(self, opaque=False):
         super().__init__()
         # Window flags: frameless, always on top, transparent background
         self.setWindowFlags(
@@ -87,7 +88,10 @@ class GMeterOverlay(QtWidgets.QWidget):
             QtCore.Qt.FramelessWindowHint |
             QtCore.Qt.WindowStaysOnTopHint
         )
-        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        # Transparency can be flaky on some Windows GPU/driver combos; allow opaque fallback
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, not opaque)
+        self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
         self.setFixedSize(280, 280)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
 
@@ -258,11 +262,27 @@ class GMeterOverlay(QtWidgets.QWidget):
             painter.setPen(QtGui.QColor(255, 255, 255, 220))
             painter.drawText(int(10), int(20),
                              f"Long: {long_g:.2f} g   Lat: {lat_g:.2f} g")
+        else:
+            # No telemetry yet: show a hint
+            painter.setPen(QtGui.QColor(255, 255, 255, 160))
+            painter.drawText(int(10), int(20), "Waiting for iRacing telemetry…")
 
 def main():
+    # Prefer compatibility over speed on Windows to avoid black window with transparency
+    if sys.platform.startswith("win"):
+        try:
+            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_UseSoftwareOpenGL)
+        except Exception:
+            pass
+        try:
+            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
+        except Exception:
+            pass
+
+    opaque = ("--opaque" in sys.argv) or (os.environ.get("IR_GMETER_OPAQUE") == "1")
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("iRacing G‑meter")
-    w = GMeterOverlay()
+    w = GMeterOverlay(opaque=opaque)
     # Center on primary screen
     screen = app.primaryScreen().availableGeometry()
     w.move(int(screen.center().x() - w.width()/2), int(screen.center().y() - w.height()/2))
