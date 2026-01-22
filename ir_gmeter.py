@@ -6,7 +6,6 @@
 import math
 import sys
 import time
-import os
 from collections import deque
 
 # --- Telemetry ---
@@ -80,18 +79,15 @@ class IRacingReader(QtCore.QObject):
             self.telemetry.emit(float('nan'), float('nan'), 0.0, 0.0)
 
 class GMeterOverlay(QtWidgets.QWidget):
-    def __init__(self, opaque=False):
+    def __init__(self):
         super().__init__()
         # Window flags: frameless, always on top, transparent background
         self.setWindowFlags(
-            QtCore.Qt.Window |
             QtCore.Qt.FramelessWindowHint |
-            QtCore.Qt.WindowStaysOnTopHint
+            QtCore.Qt.WindowStaysOnTopHint |
+            QtCore.Qt.Tool
         )
-        # Transparency can be flaky on some Windows GPU/driver combos; allow opaque fallback
-        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, not opaque)
-        self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
-        self.setAutoFillBackground(False)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
         self.setFixedSize(280, 280)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
 
@@ -185,6 +181,10 @@ class GMeterOverlay(QtWidgets.QWidget):
     def paintEvent(self, _):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        # Explicitly clear to transparent to avoid black background on some systems
+        painter.setCompositionMode(QtGui.QPainter.CompositionMode_Source)
+        painter.fillRect(self.rect(), QtCore.Qt.transparent)
+        painter.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
 
         # Transparent background (leave it)
         w, h = self.width(), self.height()
@@ -268,28 +268,15 @@ class GMeterOverlay(QtWidgets.QWidget):
             painter.drawText(int(10), int(20), "Waiting for iRacing telemetry…")
 
 def main():
-    # Prefer compatibility over speed on Windows to avoid black window with transparency
-    if sys.platform.startswith("win"):
-        try:
-            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_UseSoftwareOpenGL)
-        except Exception:
-            pass
-        try:
-            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
-        except Exception:
-            pass
-
-    opaque = ("--opaque" in sys.argv) or (os.environ.get("IR_GMETER_OPAQUE") == "1")
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("iRacing G‑meter")
-    w = GMeterOverlay(opaque=opaque)
+    w = GMeterOverlay()
+    if "--opaque" in sys.argv:
+        w.setAttribute(QtCore.Qt.WA_TranslucentBackground, False)
     # Center on primary screen
     screen = app.primaryScreen().availableGeometry()
     w.move(int(screen.center().x() - w.width()/2), int(screen.center().y() - w.height()/2))
     w.show()
-    # Bring to front and allow Alt+Tab focusing
-    w.raise_()
-    w.activateWindow()
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
