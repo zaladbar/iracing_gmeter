@@ -83,12 +83,13 @@ class GMeterOverlay(QtWidgets.QWidget):
         super().__init__()
         # Window flags: frameless, always on top, transparent background
         self.setWindowFlags(
+            QtCore.Qt.Window |
             QtCore.Qt.FramelessWindowHint |
-            QtCore.Qt.WindowStaysOnTopHint |
-            QtCore.Qt.Tool
+            QtCore.Qt.WindowStaysOnTopHint
         )
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
         self.setFixedSize(280, 280)
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)
 
         # State
         self.g_scale = 2.0     # outer ring = ±g_scale
@@ -266,6 +267,9 @@ def main():
     screen = app.primaryScreen().availableGeometry()
     w.move(int(screen.center().x() - w.width()/2), int(screen.center().y() - w.height()/2))
     w.show()
+    # Bring to front and allow Alt+Tab focusing
+    w.raise_()
+    w.activateWindow()
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
