@@ -6,6 +6,8 @@
 import math
 import sys
 import time
+import json
+from pathlib import Path
 from collections import deque
 
 # --- Telemetry ---
@@ -79,7 +81,7 @@ class IRacingReader(QtCore.QObject):
             self.telemetry.emit(float('nan'), float('nan'), 0.0, 0.0)
 
 class GMeterOverlay(QtWidgets.QWidget):
-    def __init__(self):
+    def __init__(self, config: dict):
         super().__init__()
         # Window flags: frameless, always on top, transparent background
         self.setWindowFlags(
@@ -87,16 +89,18 @@ class GMeterOverlay(QtWidgets.QWidget):
             QtCore.Qt.WindowStaysOnTopHint |
             QtCore.Qt.Tool
         )
-        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
-        self.setFixedSize(280, 280)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, bool(config.get('transparent', False)))
+        self.setFixedSize(int(config.get('size', 280)), int(config.get('size', 280)))
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
 
-        # State
-        self.g_scale = 2.0     # outer ring = ±g_scale
-        self.alpha = 0.25      # EMA smoothing (0..1], higher = more smoothing
-        self.use_comp = False  # gravity compensation (banking/pitch)
-        self.show_trail = True
-        self.show_help = False
+        # State (from config)
+        self.g_scale = float(config.get('g_scale', 2.0))     # outer ring = ±g_scale
+        self.alpha = float(max(0.05, min(0.95, config.get('alpha', 0.25))))  # EMA smoothing
+        self.use_comp = bool(config.get('use_comp', False))  # gravity compensation
+        self.show_trail = bool(config.get('show_trail', True))
+        self.show_help = bool(config.get('show_help', False))
+        self.enable_hotkeys = bool(config.get('enable_hotkeys', False))
+        self.bg_color = tuple(config.get('bg_rgba', [0, 0, 0, 200]))
 
         self._s_long_g = None
         self._s_lat_g = None
@@ -130,6 +134,8 @@ class GMeterOverlay(QtWidgets.QWidget):
         self._drag_origin = None
 
     def keyPressEvent(self, e):
+        if not self.enable_hotkeys:
+            return
         k = e.key()
         if k == QtCore.Qt.Key_G:
             self.use_comp = not self.use_comp
@@ -181,15 +187,14 @@ class GMeterOverlay(QtWidgets.QWidget):
     def paintEvent(self, _):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        # Explicitly clear to transparent to avoid black background on some systems
-        painter.setCompositionMode(QtGui.QPainter.CompositionMode_Source)
-        painter.fillRect(self.rect(), QtCore.Qt.transparent)
-        painter.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
 
-        # Transparent background (leave it)
+        # Background
         w, h = self.width(), self.height()
         center = QtCore.QPointF(w/2, h/2)
         radius = min(w, h) * 0.45
+        if not self.testAttribute(QtCore.Qt.WA_TranslucentBackground):
+            r, g, b, a = self.bg_color
+            painter.fillRect(self.rect(), QtGui.QColor(r, g, b, a))
 
         # Outer halo
         pen_outer = QtGui.QPen(QtGui.QColor(255, 255, 255, 180), 2)
@@ -224,10 +229,16 @@ class GMeterOverlay(QtWidgets.QWidget):
 
         # Help
         if self.show_help:
-            help_lines = [
-                "G = grav. comp, T = trail, +/- = scale, S/A = smoothing, H = help, Right‑click = quit",
-                "Drag to move. Dot = (Lat g, Long g). Up = accel, Down = brake, Left = left‑G.",
-            ]
+            if self.enable_hotkeys:
+                help_lines = [
+                    "G = grav. comp, T = trail, +/- = scale, S/A = smoothing, H = help, Right‑click = quit",
+                    "Drag to move. Dot = (Lat g, Long g). Up = accel, Down = brake, Left = left‑G.",
+                ]
+            else:
+                help_lines = [
+                    "Drag to move. Right‑click = quit.",
+                    "Edit gmeter_config.json to change scale/smoothing/comp/trail.",
+                ]
             y = 20
             for line in help_lines:
                 painter.drawText(10, y, line)
@@ -267,12 +278,40 @@ class GMeterOverlay(QtWidgets.QWidget):
             painter.setPen(QtGui.QColor(255, 255, 255, 160))
             painter.drawText(int(10), int(20), "Waiting for iRacing telemetry…")
 
+def _default_config() -> dict:
+    return {
+        "g_scale": 2.0,
+        "alpha": 0.25,
+        "use_comp": False,
+        "show_trail": True,
+        "show_help": False,
+        "enable_hotkeys": False,
+        "transparent": False,  # set True for glassy background; False avoids black box on some GPUs
+        "bg_rgba": [16, 16, 20, 200],
+        "size": 280,
+    }
+
+
+def _load_config(path: Path) -> dict:
+    if not path.exists():
+        cfg = _default_config()
+        try:
+            path.write_text(json.dumps(cfg, indent=2))
+        except Exception:
+            pass
+        return cfg
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return _default_config()
+
+
 def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("iRacing G‑meter")
-    w = GMeterOverlay()
-    if "--opaque" in sys.argv:
-        w.setAttribute(QtCore.Qt.WA_TranslucentBackground, False)
+    cfg_path = Path(__file__).with_name('gmeter_config.json')
+    cfg = _load_config(cfg_path)
+    w = GMeterOverlay(cfg)
     # Center on primary screen
     screen = app.primaryScreen().availableGeometry()
     w.move(int(screen.center().x() - w.width()/2), int(screen.center().y() - w.height()/2))
