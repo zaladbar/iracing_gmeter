@@ -200,9 +200,15 @@ class GMeterOverlay(QtWidgets.QWidget):
             rr = r_step * i
             painter.drawEllipse(center, rr, rr)
 
-        # Crosshairs
-        painter.drawLine(center.x()-radius, center.y(), center.x()+radius, center.y())  # lateral
-        painter.drawLine(center.x(), center.y()-radius, center.x(), center.y()+radius)  # longitudinal
+        # Crosshairs (use QPointF to avoid float->int overload issues)
+        painter.drawLine(
+            QtCore.QPointF(center.x() - radius, center.y()),
+            QtCore.QPointF(center.x() + radius, center.y())
+        )  # lateral
+        painter.drawLine(
+            QtCore.QPointF(center.x(), center.y() - radius),
+            QtCore.QPointF(center.x(), center.y() + radius)
+        )  # longitudinal
 
         # Labels
         font = QtGui.QFont("Segoe UI", 9)
@@ -264,4 +270,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
